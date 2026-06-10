@@ -203,11 +203,12 @@ export class AerisRoomCard extends AerisBaseCard {
       ctx.quadraticCurveTo(pts[i].x, pts[i].y, cx, cy);
     }
     ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
-    const style = getComputedStyle(this);
+    const cardEl = this.renderRoot.querySelector(".card");
+    const style = cardEl ? getComputedStyle(cardEl) : getComputedStyle(this);
     const accent =
       style.getPropertyValue("--aeris-spark").trim() || "#59b8ff";
     ctx.strokeStyle = accent;
-    ctx.globalAlpha = 0.55;
+    ctx.globalAlpha = 0.4;
     ctx.lineWidth = 2;
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
@@ -370,7 +371,7 @@ export class AerisRoomCard extends AerisBaseCard {
         right: 0;
         bottom: 0;
         width: 100%;
-        height: 44%;
+        height: 38%;
         pointer-events: none;
         -webkit-mask-image: linear-gradient(to top, #000 55%, transparent);
         mask-image: linear-gradient(to top, #000 55%, transparent);
@@ -517,7 +518,9 @@ export class AerisRoomCard extends AerisBaseCard {
         height: 44px;
         border-radius: var(--aeris-radius-control);
         border: 1px solid rgba(255, 255, 255, 0.09);
-        background: rgba(255, 255, 255, 0.06);
+        background: rgba(22, 28, 36, 0.78);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -538,7 +541,7 @@ export class AerisRoomCard extends AerisBaseCard {
         transition: color var(--aeris-t-state) var(--aeris-ease);
       }
       .card.on .badge {
-        background: rgba(16, 21, 28, 0.06);
+        background: rgba(248, 250, 252, 0.82);
         border-color: rgba(16, 21, 28, 0.12);
       }
       .card.on .badge ha-icon {
