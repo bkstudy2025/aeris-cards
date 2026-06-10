@@ -1,0 +1,24 @@
+{
+  "name": "aeris-cards",
+  "version": "0.1.0",
+  "description": "Aeris — the family-friendly premium design system for Home Assistant dashboards",
+  "type": "module",
+  "license": "MIT",
+  "author": "Marcel Beitlich",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bkstudy2025/aeris-cards"
+  },
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "lit": "^3.2.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
+  }
+}
