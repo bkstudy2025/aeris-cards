@@ -5,12 +5,8 @@ export { tokens } from "./shared/tokens";
 export { localizeState } from "./shared/i18n";
 export { iconFor } from "./shared/icons";
 
-/* Cards register themselves on import — added per phase:
- * import "./cards/aeris-tile/aeris-tile";
- * import "./cards/aeris-room-card/aeris-room-card";
- * import "./cards/aeris-scenes/aeris-scenes";
- * import "./cards/aeris-status/aeris-status";
- */
+/* Cards register themselves on import. */
+import "./cards/aeris-tile/aeris-tile";
 
 console.info(
   `%c AERIS CARDS %c v${AERIS_VERSION} `,
