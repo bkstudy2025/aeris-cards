@@ -13,6 +13,7 @@ export interface HomeAssistant {
     service: string,
     data?: Record<string, unknown>
   ): Promise<unknown>;
+  callWS?<T>(msg: Record<string, unknown>): Promise<T>;
 }
 
 export interface AerisBaseConfig {

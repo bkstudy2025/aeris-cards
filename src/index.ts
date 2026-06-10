@@ -7,6 +7,7 @@ export { iconFor } from "./shared/icons";
 
 /* Cards register themselves on import. */
 import "./cards/aeris-tile/aeris-tile";
+import "./cards/aeris-room-card/aeris-room-card";
 
 console.info(
   `%c AERIS CARDS %c v${AERIS_VERSION} `,
