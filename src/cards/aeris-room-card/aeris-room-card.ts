@@ -6,13 +6,17 @@ import { localizeState } from "../../shared/i18n";
 import { iconFor } from "../../shared/icons";
 
 /**
- * aeris-room-card — the room at a glance.
+ * aeris-room-card — the card IS the room.
  *
- * Innovations over every other room card:
- *  - Living intensity: the bright flip scales with how much is active
- *  - Built-in conflict watch: window open + heating on → the card warns itself
- *  - 1-tap device badges with optimistic flip, 24 h climate sparkline
+ * The Light Aura engine: the card stays dark glass, and real light blooms
+ * where it is in the room. Each device may carry a `position` (9-zone grid);
+ * active lights glow from that zone in their REAL color (rgb_color) and
+ * scaled by their REAL brightness. Heating glows warm from the radiator
+ * zone, an open window casts a cool draft shimmer — and pulses red when
+ * the heating runs at the same time. Nothing like it exists elsewhere.
  */
+
+type DeviceDef = string | { entity: string; position?: string };
 
 interface RoomConfig {
   type: string;
@@ -22,13 +26,43 @@ interface RoomConfig {
   navigate?: string;
   temp_entity?: string;
   humidity_entity?: string;
-  devices?: string[];
-  window_entities?: string[];
+  devices?: DeviceDef[];
+  window_entities?: DeviceDef[];
   graph_hours?: number;
+}
+
+interface NormDevice {
+  entity: string;
+  position: string;
 }
 
 const TOGGLE_BADGE = new Set(["light", "switch", "input_boolean", "fan", "cover"]);
 const HISTORY_TTL = 10 * 60 * 1000;
+
+/* 9-zone grid → gradient centers */
+const POS: Record<string, string> = {
+  "top-left": "16% 10%",
+  top: "50% 6%",
+  "top-right": "84% 10%",
+  left: "8% 48%",
+  center: "50% 42%",
+  right: "92% 48%",
+  "bottom-left": "16% 84%",
+  bottom: "50% 90%",
+  "bottom-right": "84% 84%",
+};
+
+/* zero-config spread when no positions are set */
+const AUTO_POS = [
+  "top",
+  "top-right",
+  "left",
+  "right",
+  "top-left",
+  "center",
+  "bottom-right",
+  "bottom-left",
+];
 
 export class AerisRoomCard extends AerisBaseCard {
   static properties = {
@@ -45,7 +79,7 @@ export class AerisRoomCard extends AerisBaseCard {
     super();
     this.addEventListener("aeris-longpress", () => {
       const first = this._devices[0];
-      if (first) this.moreInfo(first);
+      if (first) this.moreInfo(first.entity);
     });
   }
 
@@ -74,34 +108,54 @@ export class AerisRoomCard extends AerisBaseCard {
 
   /* ---------- data ---------- */
 
-  private get _devices(): string[] {
-    return this._config?.devices ?? [];
+  private _normalize(defs: DeviceDef[] | undefined, autoSpread: boolean): NormDevice[] {
+    return (defs ?? []).map((d, i) => {
+      if (typeof d === "string")
+        return {
+          entity: d,
+          position: autoSpread ? AUTO_POS[i % AUTO_POS.length] : "top",
+        };
+      return {
+        entity: d.entity,
+        position: d.position ?? (autoSpread ? AUTO_POS[i % AUTO_POS.length] : "top"),
+      };
+    });
   }
 
-  private get _windows(): string[] {
-    return this._config?.window_entities ?? [];
+  private get _devices(): NormDevice[] {
+    return this._normalize(this._config?.devices, true);
+  }
+
+  private get _windows(): NormDevice[] {
+    return this._normalize(this._config?.window_entities, false);
   }
 
   private get _accent(): string {
     return this._config?.accent || "var(--aeris-room-neutral)";
   }
 
-  private get _activeDevices(): string[] {
-    return this._devices.filter((d) => this.isActive(d) && this.isAvailable(d));
+  private get _activeCount(): number {
+    return this._devices.filter(
+      (d) => this.isActive(d.entity) && this.isAvailable(d.entity)
+    ).length;
   }
 
   private get _windowOpen(): boolean {
-    return this._windows.some((w) => this.isActive(w) && this.isAvailable(w));
+    return this._windows.some(
+      (w) => this.isActive(w.entity) && this.isAvailable(w.entity)
+    );
   }
 
-  /** Window open while a climate device is running — the card thinks. */
+  /** Window open while a climate device actually heats/cools. */
   private get _conflict(): boolean {
     if (!this._windowOpen) return false;
     return this._devices.some((d) => {
-      if (!d.startsWith("climate.") || !this.isAvailable(d)) return false;
-      const action = this.entity(d)?.attributes?.hvac_action as string | undefined;
+      if (!d.entity.startsWith("climate.") || !this.isAvailable(d.entity)) return false;
+      const action = this.entity(d.entity)?.attributes?.hvac_action as
+        | string
+        | undefined;
       if (action) return action === "heating" || action === "cooling";
-      return this.isActive(d);
+      return this.isActive(d.entity);
     });
   }
 
@@ -113,16 +167,67 @@ export class AerisRoomCard extends AerisBaseCard {
   }
 
   private _sub(lang?: string): string {
-    if (this._conflict)
-      return lang?.startsWith("de")
-        ? "Fenster offen, Heizung läuft!"
-        : "Window open while heating!";
-    const n = this._activeDevices.length;
-    if (this._windowOpen)
-      return lang?.startsWith("de") ? "Fenster offen" : "Window open";
-    if (n === 0) return lang?.startsWith("de") ? "Alles aus" : "All off";
-    if (n === 1) return lang?.startsWith("de") ? "1 Gerät an" : "1 device on";
-    return lang?.startsWith("de") ? `${n} Geräte an` : `${n} devices on`;
+    const de = lang?.startsWith("de");
+    if (this._conflict) return de ? "Fenster offen, Heizung läuft!" : "Window open while heating!";
+    if (this._windowOpen) return de ? "Fenster offen" : "Window open";
+    const n = this._activeCount;
+    if (n === 0) return de ? "Alles aus" : "All off";
+    if (n === 1) return de ? "1 Gerät an" : "1 device on";
+    return de ? `${n} Geräte an` : `${n} devices on`;
+  }
+
+  /* ---------- the Light Aura engine ---------- */
+
+  private _glowFor(d: NormDevice): { color: string; opacity: number } | undefined {
+    const id = d.entity;
+    if (!this.isAvailable(id)) return undefined;
+    const domain = id.split(".")[0];
+    const attrs = this.entity(id)?.attributes ?? {};
+    const active = this.isActive(id);
+
+    if (domain === "climate") {
+      const action = attrs.hvac_action as string | undefined;
+      if (action === "heating") return { color: "255,112,67", opacity: 0.5 };
+      if (action === "cooling") return { color: "79,195,247", opacity: 0.5 };
+      return undefined;
+    }
+    if (!active) return undefined;
+    if (domain === "light") {
+      const rgb = attrs.rgb_color as [number, number, number] | undefined;
+      const color = rgb ? rgb.join(",") : "255,214,150";
+      const bri = attrs.brightness as number | undefined;
+      const pct = bri != null ? bri / 255 : 1;
+      return { color, opacity: 0.3 + 0.45 * pct };
+    }
+    if (domain === "cover") return undefined;
+    if (domain === "media_player") return { color: "149,117,205", opacity: 0.4 };
+    return { color: "150,200,255", opacity: 0.35 };
+  }
+
+  private _renderAura(): TemplateResult[] {
+    const layers: TemplateResult[] = [];
+    for (const d of this._devices) {
+      const glow = this._glowFor(d);
+      const at = POS[d.position] ?? POS.top;
+      layers.push(html`
+        <div
+          class="glow"
+          style="background: radial-gradient(58% 52% at ${at}, rgba(${glow?.color ?? "0,0,0"}, .85), transparent 72%); opacity:${glow ? glow.opacity : 0};"
+        ></div>
+      `);
+    }
+    const conflict = this._conflict;
+    for (const w of this._windows) {
+      const open = this.isActive(w.entity) && this.isAvailable(w.entity);
+      const at = POS[w.position] ?? POS.top;
+      layers.push(html`
+        <div
+          class="glow draft ${conflict && open ? "pulse" : ""}"
+          style="background: radial-gradient(64% 58% at ${at}, rgba(${conflict ? "255,107,107" : "126,156,190"}, .6), transparent 74%); opacity:${open ? (conflict ? 0.85 : 0.5) : 0};"
+        ></div>
+      `);
+    }
+    return layers;
   }
 
   /* ---------- history sparkline ---------- */
@@ -165,7 +270,7 @@ export class AerisRoomCard extends AerisBaseCard {
             : values;
       })
       .catch(() => {
-        /* sparkline is decoration — fail silently */
+        /* decoration only */
       });
   }
 
@@ -203,12 +308,8 @@ export class AerisRoomCard extends AerisBaseCard {
       ctx.quadraticCurveTo(pts[i].x, pts[i].y, cx, cy);
     }
     ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
-    const cardEl = this.renderRoot.querySelector(".card");
-    const style = cardEl ? getComputedStyle(cardEl) : getComputedStyle(this);
-    const accent =
-      style.getPropertyValue("--aeris-spark").trim() || "#59b8ff";
-    ctx.strokeStyle = accent;
-    ctx.globalAlpha = 0.4;
+    ctx.strokeStyle = "#ffffff";
+    ctx.globalAlpha = 0.22;
     ctx.lineWidth = 2;
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
@@ -235,26 +336,16 @@ export class AerisRoomCard extends AerisBaseCard {
   protected render(): TemplateResult | typeof nothing {
     if (!this._config || !this.hass) return nothing;
     const lang = this.hass.language;
-    const active = this._activeDevices.length;
-    const total = this._devices.length || 1;
-    const on = active > 0;
+    const on = this._activeCount > 0;
     const conflict = this._conflict;
-
-    /* Living intensity: flip strength follows activity (innovation #1) */
-    const ratio = Math.min(1, active / total);
-    const mixA = Math.round(10 + 14 * ratio);
-    const mixB = Math.round(4 + 8 * ratio);
 
     const temp = this._sensorValue(this._config.temp_entity, 1);
     const hum = this._sensorValue(this._config.humidity_entity, 0);
 
-    const accent = this._accent;
-    const spark = on ? "rgba(16,21,28,.8)" : accent;
-
     return html`
       <div
         class="card ${on ? "on" : ""} ${conflict ? "conflict" : ""}"
-        style="--accent:${accent};--mix-a:${mixA}%;--mix-b:${mixB}%;--aeris-spark:${spark}"
+        style="--accent:${this._accent}"
         role="button"
         tabindex="0"
         aria-label=${this._config.name ?? ""}
@@ -263,6 +354,7 @@ export class AerisRoomCard extends AerisBaseCard {
         @pointerup=${this.pressEnd}
         @pointerleave=${this.pressEnd}
       >
+        ${this._renderAura()}
         <canvas class="spark" aria-hidden="true"></canvas>
         <div class="head">
           <div class="iconbox" aria-hidden="true">
@@ -294,15 +386,15 @@ export class AerisRoomCard extends AerisBaseCard {
         ${this._devices.length
           ? html`<div class="badges" @click=${(e: Event) => e.stopPropagation()}>
               ${this._devices.map((d) => {
-                const a = this.isActive(d) && this.isAvailable(d);
+                const a = this.isActive(d.entity) && this.isAvailable(d.entity);
                 return html`
                   <button
                     class="badge ${a ? "on" : ""}"
-                    aria-label=${(this.entity(d)?.attributes?.friendly_name as string) ?? d}
-                    title=${localizeState(this.displayState(d), lang)}
-                    @click=${(e: Event) => this._onBadge(d, e)}
+                    aria-label=${(this.entity(d.entity)?.attributes?.friendly_name as string) ?? d.entity}
+                    title=${localizeState(this.displayState(d.entity), lang)}
+                    @click=${(e: Event) => this._onBadge(d.entity, e)}
                   >
-                    <ha-icon .icon=${iconFor(d, a)}></ha-icon>
+                    <ha-icon .icon=${iconFor(d.entity, a)}></ha-icon>
                   </button>
                 `;
               })}
@@ -330,7 +422,9 @@ export class AerisRoomCard extends AerisBaseCard {
         flex-direction: column;
         padding: var(--aeris-pad-card);
         border-radius: var(--aeris-radius-card);
-        background: var(--aeris-surface);
+        background:
+          radial-gradient(120% 100% at 50% 120%, rgba(255, 255, 255, 0.03), transparent 60%),
+          #10151d;
         border: 1px solid var(--aeris-surface-border);
         box-shadow: var(--aeris-shadow);
         color: var(--aeris-text);
@@ -338,31 +432,42 @@ export class AerisRoomCard extends AerisBaseCard {
         overflow: hidden;
         -webkit-tap-highlight-color: transparent;
         transition:
-          background var(--aeris-t-state) var(--aeris-ease),
           border-color var(--aeris-t-state) var(--aeris-ease),
           box-shadow var(--aeris-t-state) var(--aeris-ease),
-          color var(--aeris-t-state) var(--aeris-ease),
           transform var(--aeris-t-press) var(--aeris-ease);
       }
       .card:active {
         transform: scale(0.97);
       }
-      /* Living flip — intensity follows activity via --mix-a/--mix-b */
       .card.on {
-        background: linear-gradient(
-          155deg,
-          color-mix(in srgb, var(--accent) var(--mix-a, 18%), #f4f6f9),
-          color-mix(in srgb, var(--accent) var(--mix-b, 8%), #e8ecf2)
-        );
-        border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-        box-shadow: 0 6px 24px color-mix(in srgb, var(--accent) 30%, rgba(0, 0, 0, 0.2));
-        color: var(--aeris-text-on-light);
+        border-color: color-mix(in srgb, var(--accent) 38%, transparent);
       }
-      /* Conflict watch — the card warns itself */
       .card.conflict {
         border-color: var(--aeris-danger);
         box-shadow: 0 0 0 1px var(--aeris-danger),
           0 6px 24px color-mix(in srgb, var(--aeris-danger) 35%, rgba(0, 0, 0, 0.2));
+      }
+
+      /* —— the Light Aura: light blooms where it lives —— */
+      .glow {
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        pointer-events: none;
+        transition: opacity 700ms var(--aeris-ease);
+        will-change: opacity;
+      }
+      .glow.pulse {
+        animation: aeris-pulse 1.6s ease-in-out infinite;
+      }
+      @keyframes aeris-pulse {
+        0%, 100% { opacity: 0.85; }
+        50% { opacity: 0.45; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .glow.pulse {
+          animation: none;
+        }
       }
 
       .spark {
@@ -371,7 +476,7 @@ export class AerisRoomCard extends AerisBaseCard {
         right: 0;
         bottom: 0;
         width: 100%;
-        height: 38%;
+        height: 36%;
         pointer-events: none;
         -webkit-mask-image: linear-gradient(to top, #000 55%, transparent);
         mask-image: linear-gradient(to top, #000 55%, transparent);
@@ -391,8 +496,10 @@ export class AerisRoomCard extends AerisBaseCard {
         display: flex;
         align-items: center;
         justify-content: center;
-        background: rgba(255, 255, 255, 0.92);
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
         flex-shrink: 0;
         transition:
           background var(--aeris-t-state) var(--aeris-ease),
@@ -400,12 +507,13 @@ export class AerisRoomCard extends AerisBaseCard {
       }
       .iconbox ha-icon {
         --mdc-icon-size: 23px;
-        color: #2b3440;
+        color: rgba(255, 255, 255, 0.85);
         transition: color var(--aeris-t-state) var(--aeris-ease);
       }
       .card.on .iconbox {
         background: var(--accent);
-        box-shadow: 0 0 20px color-mix(in srgb, var(--accent) 55%, transparent);
+        border-color: transparent;
+        box-shadow: 0 0 22px color-mix(in srgb, var(--accent) 60%, transparent);
       }
       .card.on .iconbox ha-icon {
         color: #fff;
@@ -423,6 +531,7 @@ export class AerisRoomCard extends AerisBaseCard {
         letter-spacing: -0.5px;
         font-variant-numeric: tabular-nums;
         line-height: 1;
+        text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45);
       }
       .value .unit {
         font-size: 16px;
@@ -434,12 +543,8 @@ export class AerisRoomCard extends AerisBaseCard {
         gap: 2px;
         font-size: 11.5px;
         font-weight: 600;
-        color: var(--aeris-text-sub);
+        color: rgba(255, 255, 255, 0.6);
         font-variant-numeric: tabular-nums;
-        transition: color var(--aeris-t-state) var(--aeris-ease);
-      }
-      .card.on .hum {
-        color: var(--aeris-text-sub-on-light);
       }
       .hum ha-icon {
         --mdc-icon-size: 13px;
@@ -466,6 +571,7 @@ export class AerisRoomCard extends AerisBaseCard {
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        text-shadow: 0 1px 10px rgba(0, 0, 0, 0.5);
       }
       .winpill {
         width: 24px;
@@ -494,12 +600,9 @@ export class AerisRoomCard extends AerisBaseCard {
         margin-top: 1px;
         font-size: 11.5px;
         font-weight: 500;
-        color: var(--aeris-text-sub);
+        color: rgba(255, 255, 255, 0.55);
         position: relative;
-        transition: color var(--aeris-t-state) var(--aeris-ease);
-      }
-      .card.on .sub {
-        color: var(--aeris-text-sub-on-light);
+        text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
       }
       .sub.warntext {
         color: var(--aeris-danger);
@@ -517,10 +620,10 @@ export class AerisRoomCard extends AerisBaseCard {
         width: 44px;
         height: 44px;
         border-radius: var(--aeris-radius-control);
-        border: 1px solid rgba(255, 255, 255, 0.09);
-        background: rgba(22, 28, 36, 0.78);
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(18, 24, 32, 0.66);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -540,22 +643,12 @@ export class AerisRoomCard extends AerisBaseCard {
         color: var(--aeris-idle-icon);
         transition: color var(--aeris-t-state) var(--aeris-ease);
       }
-      .card.on .badge {
-        background: rgba(248, 250, 252, 0.82);
-        border-color: rgba(16, 21, 28, 0.12);
-      }
-      .card.on .badge ha-icon {
-        color: rgba(16, 21, 28, 0.45);
-      }
       .badge.on {
         background: var(--accent);
         border-color: var(--accent);
         box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 50%, transparent);
       }
       .badge.on ha-icon {
-        color: #fff;
-      }
-      .card.on .badge.on ha-icon {
         color: #fff;
       }
     `,
@@ -596,7 +689,7 @@ class AerisRoomCardEditor extends LitElement {
       navigate: "Subview-Pfad (z. B. wohnzimmer)",
       temp_entity: "Temperatur-Sensor",
       humidity_entity: "Luftfeuchte-Sensor",
-      devices: "Geräte (Badges)",
+      devices: "Geräte (Badges + Licht-Aura)",
       window_entities: "Fenster-Sensoren",
     })[schema.name] ?? schema.name;
 
@@ -635,7 +728,7 @@ window.customCards.push({
   type: "aeris-room-card",
   name: "Aeris Room Card",
   description:
-    "The room at a glance — living flip intensity, built-in window/heating conflict watch, 1-tap device badges, climate sparkline.",
+    "The card IS the room — real light blooms where it lives, in its real color and brightness. Window drafts shimmer cool, conflicts pulse red.",
   preview: true,
   documentationURL: "https://github.com/bkstudy2025/aeris-cards",
 });
