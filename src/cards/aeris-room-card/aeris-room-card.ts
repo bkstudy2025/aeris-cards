@@ -187,21 +187,22 @@ export class AerisRoomCard extends AerisBaseCard {
 
     if (domain === "climate") {
       const action = attrs.hvac_action as string | undefined;
-      if (action === "heating") return { color: "255,112,67", opacity: 0.5 };
-      if (action === "cooling") return { color: "79,195,247", opacity: 0.5 };
+      if (action === "heating") return { color: "255,112,67", opacity: 0.85 };
+      if (action === "cooling") return { color: "79,195,247", opacity: 0.85 };
       return undefined;
     }
     if (!active) return undefined;
     if (domain === "light") {
       const rgb = attrs.rgb_color as [number, number, number] | undefined;
-      const color = rgb ? rgb.join(",") : "255,214,150";
+      const color = rgb ? rgb.join(",") : "255,202,120";
       const bri = attrs.brightness as number | undefined;
       const pct = bri != null ? bri / 255 : 1;
-      return { color, opacity: 0.3 + 0.45 * pct };
+      return { color, opacity: 0.55 + 0.45 * pct };
     }
     if (domain === "cover") return undefined;
-    if (domain === "media_player") return { color: "149,117,205", opacity: 0.4 };
-    return { color: "150,200,255", opacity: 0.35 };
+    if (domain === "media_player") return { color: "168,130,255", opacity: 0.8 };
+    /* switches usually drive lamps — glow warm like a light */
+    return { color: "255,202,120", opacity: 0.9 };
   }
 
   private _renderAura(): TemplateResult[] {
@@ -212,7 +213,7 @@ export class AerisRoomCard extends AerisBaseCard {
       layers.push(html`
         <div
           class="glow"
-          style="background: radial-gradient(58% 52% at ${at}, rgba(${glow?.color ?? "0,0,0"}, .85), transparent 72%); opacity:${glow ? glow.opacity : 0};"
+          style="background: radial-gradient(52% 46% at ${at}, rgba(${glow?.color ?? "0,0,0"}, .9) 0%, rgba(${glow?.color ?? "0,0,0"}, .35) 45%, transparent 76%); opacity:${glow ? glow.opacity : 0};"
         ></div>
       `);
     }
@@ -223,7 +224,7 @@ export class AerisRoomCard extends AerisBaseCard {
       layers.push(html`
         <div
           class="glow draft ${conflict && open ? "pulse" : ""}"
-          style="background: radial-gradient(64% 58% at ${at}, rgba(${conflict ? "255,107,107" : "126,156,190"}, .6), transparent 74%); opacity:${open ? (conflict ? 0.85 : 0.5) : 0};"
+          style="background: radial-gradient(60% 54% at ${at}, rgba(${conflict ? "255,107,107" : "140,176,210"}, .75) 0%, rgba(${conflict ? "255,107,107" : "140,176,210"}, .25) 48%, transparent 78%); opacity:${open ? (conflict ? 0.95 : 0.7) : 0};"
         ></div>
       `);
     }
@@ -454,6 +455,7 @@ export class AerisRoomCard extends AerisBaseCard {
         inset: 0;
         border-radius: inherit;
         pointer-events: none;
+        mix-blend-mode: screen;
         transition: opacity 700ms var(--aeris-ease);
         will-change: opacity;
       }
