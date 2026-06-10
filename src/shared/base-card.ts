@@ -10,6 +10,8 @@ const OFF_STATES = new Set([
   "locked",
   "idle",
   "standby",
+  "docked",
+  "paused",
   "",
 ]);
 
